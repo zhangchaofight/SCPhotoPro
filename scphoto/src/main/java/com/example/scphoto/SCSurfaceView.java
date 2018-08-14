@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.AttributeSet;
 import android.view.TextureView;
 
+@SuppressWarnings("unused")
 public class SCSurfaceView extends TextureView {
 
     public SCSurfaceView(Context context) {
@@ -19,6 +20,6 @@ public class SCSurfaceView extends TextureView {
     }
 
     public void resize(int width, int height) {
-
+        // TODO: 2018/8/14 可调整宽高 
     }
 }

@@ -10,31 +10,32 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.Image;
 import android.media.ImageReader;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Size;
-import android.view.MotionEvent;
+import android.util.SparseIntArray;
 import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 
+import java.io.File;
 import java.util.Arrays;
 
 import static android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP;
 import static android.hardware.camera2.CameraDevice.TEMPLATE_PREVIEW;
 
-public class SCPhotoActivity extends AppCompatActivity {
+public class SCPhotoActivity extends AppCompatActivity implements View.OnClickListener {
 
     private SCSurfaceView scSurfaceView;
-    private View btn;
+    private View btnRetry;
+    private View btnConfirm;
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
@@ -44,6 +45,7 @@ public class SCPhotoActivity extends AppCompatActivity {
     private CameraCaptureSession mSession;
 
     private ImageReader mImageReader;
+    private Image lastestImage;
 
     private CameraCharacteristics bCharacter;
     private CameraCharacteristics fCharacter;
@@ -51,6 +53,14 @@ public class SCPhotoActivity extends AppCompatActivity {
     private Size bPreSize;
     private Size fCapSize;
     private Size bCapSize;
+
+    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+    static {
+        ORIENTATIONS.append(Surface.ROTATION_0, 90);
+        ORIENTATIONS.append(Surface.ROTATION_90, 0);
+        ORIENTATIONS.append(Surface.ROTATION_180, 270);
+        ORIENTATIONS.append(Surface.ROTATION_270, 180);
+    }
 
     private CameraDevice.StateCallback mStateCallback = new CameraDevice.StateCallback() {
         @Override
@@ -78,8 +88,32 @@ public class SCPhotoActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_scphoto);
         scSurfaceView = findViewById(R.id.surface);
-        btn = findViewById(R.id.btn);
-        btn.setOnTouchListener(capControlListener);
+        SCControlView btnCap = findViewById(R.id.btn_cap);
+        btnCap.setScControlViewTouchListener(new SCControlView.SCControlViewTouchListener() {
+            @Override
+            public void click() {
+                googleCapture();
+            }
+
+            @Override
+            public void startLongPress() {
+                startVideo();
+            }
+
+            @Override
+            public void cancelLongPress() {
+                stopVideo();
+            }
+        });
+        findViewById(R.id.btn_back).setOnClickListener(this);
+        findViewById(R.id.btn_light_on).setOnClickListener(this);
+        findViewById(R.id.btn_changeCam).setOnClickListener(this);
+        btnRetry = findViewById(R.id.btn_recap);
+        btnRetry.setOnClickListener(this);
+        btnRetry.setVisibility(View.GONE);
+        btnConfirm = findViewById(R.id.btn_confirm);
+        btnConfirm.setOnClickListener(this);
+        btnConfirm.setVisibility(View.GONE);
         init();
     }
 
@@ -130,25 +164,28 @@ public class SCPhotoActivity extends AppCompatActivity {
         }
         try {
             bCharacter = manager.getCameraCharacteristics("0");
+            fCharacter = manager.getCameraCharacteristics("1");
+            StreamConfigurationMap map = bCharacter.get(SCALER_STREAM_CONFIGURATION_MAP);
+            Size[] previewSizes = map.getOutputSizes(SurfaceTexture.class);
+            Size[] capSizes = map.getOutputSizes(ImageFormat.JPEG);
+
+            choosePreSize(previewSizes);
+            chooseCapSize(capSizes);
+            initImageReader();
+            configureTransform(scSurfaceView.getWidth(), scSurfaceView.getHeight());
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
     }
 
     private void startPreview() {
-        StreamConfigurationMap map = bCharacter.get(SCALER_STREAM_CONFIGURATION_MAP);
-        Size[] previewSizes = map.getOutputSizes(SurfaceTexture.class);
-        Size[] capSizes = map.getOutputSizes(ImageFormat.JPEG);
-
-        choosePreSize(previewSizes);
-        chooseCapSize(capSizes);
-        initImageReader();
-        configureTransform(scSurfaceView.getWidth(), scSurfaceView.getHeight());
-
+        btnRetry.setVisibility(View.GONE);
+        btnConfirm.setVisibility(View.GONE);
         try {
             mPreBuilder = mCameraDevice.createCaptureRequest(TEMPLATE_PREVIEW);
             mPreBuilder.addTarget(mSurface);
-            mCameraDevice.createCaptureSession(Arrays.asList(mSurface), new CameraCaptureSession.StateCallback() {
+            mCameraDevice.createCaptureSession(Arrays.asList(mSurface, mImageReader.getSurface()),
+                    new CameraCaptureSession.StateCallback() {
                 @Override
                 public void onConfigured(@NonNull CameraCaptureSession session) {
                     mSession = session;
@@ -221,9 +258,9 @@ public class SCPhotoActivity extends AppCompatActivity {
         mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
             @Override
             public void onImageAvailable(ImageReader reader) {
-
+                lastestImage = reader.acquireLatestImage();
             }
-        }, null);
+        }, cameraHandler);
     }
 
     @Override
@@ -233,45 +270,13 @@ public class SCPhotoActivity extends AppCompatActivity {
             mCameraDevice.close();
             mCameraDevice = null;
         }
-        if (cameraThread.isAlive()) {
+        if (cameraThread != null && cameraThread.isAlive()) {
             cameraThread.quitSafely();
             cameraThread = null;
         }
-    }
-
-    private boolean isCaputure = false;
-    private View.OnTouchListener capControlListener = new View.OnTouchListener() {
-        float startTime = 0;
-
-        @Override
-        public boolean onTouch(View v, MotionEvent event) {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    startTime = System.currentTimeMillis();
-                    mainHandler.postDelayed(new VideoRunnable(), 210);
-                    isCaputure = false;
-                    break;
-                case MotionEvent.ACTION_CANCEL:
-                case MotionEvent.ACTION_UP:
-                    if (System.currentTimeMillis() - startTime < 200) {
-                        capturePhoto();
-                        isCaputure = true;
-                    } else {
-                        stopVideo();
-                    }
-            }
-            return false;
-        }
-    };
-
-    class VideoRunnable implements Runnable {
-
-        @Override
-        public void run() {
-            if (isCaputure) {
-                return;
-            }
-            startVideo();
+        if (mImageReader != null) {
+            mImageReader.close();
+            mImageReader = null;
         }
     }
 
@@ -283,7 +288,88 @@ public class SCPhotoActivity extends AppCompatActivity {
 
     }
 
-    private void capturePhoto() {
+    private void googleCapture() {
+        try {
+            final CaptureRequest.Builder captureBuilder =
+                    mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            Surface irSurface = mImageReader.getSurface();
+            captureBuilder.addTarget(irSurface);
 
+            captureBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+
+            int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getOrientation(rotation));
+
+            CameraCaptureSession.CaptureCallback CaptureCallback
+                    = new CameraCaptureSession.CaptureCallback() {
+
+                @Override
+                public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+                                               @NonNull CaptureRequest request,
+                                               @NonNull TotalCaptureResult result) {
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            btnRetry.setVisibility(View.VISIBLE);
+                            btnConfirm.setVisibility(View.VISIBLE);
+                        }
+                    });
+                }
+            };
+
+            mSession.stopRepeating();
+            mSession.abortCaptures();
+            mSession.capture(captureBuilder.build(), CaptureCallback, cameraHandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private int getOrientation(int rotation) {
+        Integer orientation = bCharacter.get(CameraCharacteristics.SENSOR_ORIENTATION);
+        int ori = 0;
+        if (orientation != null) {
+            ori = orientation;
+        }
+        return (ORIENTATIONS.get(rotation) + ori + 270) % 360;
+    }
+
+    private void clickChangeCam() {
+
+    }
+
+    private void clickLightOn() {
+
+    }
+
+    private void clickRetry() {
+//        startPreview();
+    }
+
+    private void clickBack() {
+        finish();
+    }
+
+    private void clickConfirm() {
+        if (lastestImage != null) {
+            cameraHandler.post(new ImageSaver(lastestImage,
+                    new File(getExternalFilesDir(null).getAbsolutePath() + File.separator + System.currentTimeMillis() + ".jpg")));
+        }
+    }
+
+    @Override
+    public void onClick(View v) {
+        if (v.getId() == R.id.btn_back) {
+            clickBack();
+        } else if (v.getId() == R.id.btn_light_on) {
+            clickLightOn();
+        } else if (v.getId() == R.id.btn_changeCam) {
+            clickChangeCam();
+        } else if (v.getId() == R.id.btn_recap) {
+            clickRetry();
+        } else if (v.getId() == R.id.btn_confirm) {
+            clickConfirm();
+        }
     }
 }

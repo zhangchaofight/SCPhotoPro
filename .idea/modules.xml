@@ -3,11 +3,8 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/SCPhotoPro.iml" filepath="$PROJECT_DIR$/SCPhotoPro.iml" />
-      <module fileurl="file://D:\newphoto\SCPhotoPro\SCPhotoPro.iml" filepath="D:\newphoto\SCPhotoPro\SCPhotoPro.iml" />
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
-      <module fileurl="file://D:\newphoto\SCPhotoPro\app\app.iml" filepath="D:\newphoto\SCPhotoPro\app\app.iml" />
       <module fileurl="file://$PROJECT_DIR$/scphoto/scphoto.iml" filepath="$PROJECT_DIR$/scphoto/scphoto.iml" />
-      <module fileurl="file://D:\newphoto\SCPhotoPro\scphoto\scphoto.iml" filepath="D:\newphoto\SCPhotoPro\scphoto\scphoto.iml" />
     </modules>
   </component>
 </project>
