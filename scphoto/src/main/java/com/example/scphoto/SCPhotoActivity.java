@@ -15,6 +15,7 @@ import android.media.ImageReader;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Size;
@@ -37,6 +38,7 @@ public class SCPhotoActivity extends AppCompatActivity {
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
+    private Handler mainHandler;
 
     private CameraDevice mCameraDevice;
     private CameraCaptureSession mSession;
@@ -77,22 +79,7 @@ public class SCPhotoActivity extends AppCompatActivity {
         setContentView(R.layout.activity_scphoto);
         scSurfaceView = findViewById(R.id.surface);
         btn = findViewById(R.id.btn);
-        btn.setOnTouchListener(new View.OnTouchListener() {
-            long time = 0;
-
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        time = System.currentTimeMillis();
-                        break;
-                    case MotionEvent.ACTION_UP:
-
-                        break;
-                }
-                return false;
-            }
-        });
+        btn.setOnTouchListener(capControlListener);
         init();
     }
 
@@ -100,6 +87,7 @@ public class SCPhotoActivity extends AppCompatActivity {
         cameraThread = new HandlerThread("camera");
         cameraThread.start();
         cameraHandler = new Handler(cameraThread.getLooper());
+        mainHandler = new Handler(getMainLooper());
     }
 
     private Surface mSurface;
@@ -249,5 +237,53 @@ public class SCPhotoActivity extends AppCompatActivity {
             cameraThread.quitSafely();
             cameraThread = null;
         }
+    }
+
+    private boolean isCaputure = false;
+    private View.OnTouchListener capControlListener = new View.OnTouchListener() {
+        float startTime = 0;
+
+        @Override
+        public boolean onTouch(View v, MotionEvent event) {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    startTime = System.currentTimeMillis();
+                    mainHandler.postDelayed(new VideoRunnable(), 210);
+                    isCaputure = false;
+                    break;
+                case MotionEvent.ACTION_CANCEL:
+                case MotionEvent.ACTION_UP:
+                    if (System.currentTimeMillis() - startTime < 200) {
+                        capturePhoto();
+                        isCaputure = true;
+                    } else {
+                        stopVideo();
+                    }
+            }
+            return false;
+        }
+    };
+
+    class VideoRunnable implements Runnable {
+
+        @Override
+        public void run() {
+            if (isCaputure) {
+                return;
+            }
+            startVideo();
+        }
+    }
+
+    private void startVideo() {
+
+    }
+
+    private void stopVideo() {
+
+    }
+
+    private void capturePhoto() {
+
     }
 }
