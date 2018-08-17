@@ -3,7 +3,7 @@
     package="com.example.scphoto">
 
     <application>
-        <activity android:name=".SCPhotoActivity"></activity>
+        <activity android:name=".SCPhotoActivity" />
     </application>
 
 </manifest>

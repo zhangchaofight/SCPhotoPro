@@ -48,10 +48,10 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
     private Image lastestImage;
 
     private CameraCharacteristics bCharacter;
-    private CameraCharacteristics fCharacter;
-    private Size fPreSize;
+//    private CameraCharacteristics fCharacter;
+//    private Size fPreSize;
     private Size bPreSize;
-    private Size fCapSize;
+//    private Size fCapSize;
     private Size bCapSize;
 
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
@@ -157,6 +157,9 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
     @SuppressWarnings("missingPermission")
     private void openCamera() {
         CameraManager manager = (CameraManager) getSystemService(CAMERA_SERVICE);
+        if (manager == null) {
+            return;
+        }
         try {
             manager.openCamera("0", mStateCallback, null);
         } catch (CameraAccessException e) {
@@ -164,8 +167,11 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
         }
         try {
             bCharacter = manager.getCameraCharacteristics("0");
-            fCharacter = manager.getCameraCharacteristics("1");
+//            fCharacter = manager.getCameraCharacteristics("1");
             StreamConfigurationMap map = bCharacter.get(SCALER_STREAM_CONFIGURATION_MAP);
+            if (map == null) {
+                return;
+            }
             Size[] previewSizes = map.getOutputSizes(SurfaceTexture.class);
             Size[] capSizes = map.getOutputSizes(ImageFormat.JPEG);
 
@@ -236,7 +242,7 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
             int cur = allSize.getHeight() * allSize.getWidth();
             if (cur >= maxSize) {
                 maxSize = cur;
-                bCapSize = allSize;
+                bPreSize = allSize;
             }
         }
     }
@@ -344,7 +350,7 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
     }
 
     private void clickRetry() {
-//        startPreview();
+        startPreview();
     }
 
     private void clickBack() {
@@ -352,9 +358,10 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
     }
 
     private void clickConfirm() {
-        if (lastestImage != null) {
+        File f = getExternalFilesDir(null);
+        if (lastestImage != null && f != null) {
             cameraHandler.post(new ImageSaver(lastestImage,
-                    new File(getExternalFilesDir(null).getAbsolutePath() + File.separator + System.currentTimeMillis() + ".jpg")));
+                    new File(f.getAbsolutePath() + File.separator + System.currentTimeMillis() + ".jpg")));
         }
     }
 
