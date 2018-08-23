@@ -11,7 +11,7 @@ import android.view.View;
 public class SCControlView extends View {
 
     private static final int DEFAULT_DENY = 300;
-    private static final int DEFAULT_MAX_PRESS_TIME = 5 * 1000;
+    private static final int DEFAULT_MAX_PRESS_TIME = 50 * 1000;
 
     private int clickDeny = DEFAULT_DENY;
     private int maxPressTime = DEFAULT_MAX_PRESS_TIME;
@@ -117,7 +117,7 @@ public class SCControlView extends View {
 
         @Override
         public void run() {
-            if (!isCanceled) {
+            if (!isClick && !isCanceled) {
                 cancelLongClick();
                 isCanceled = true;
             }

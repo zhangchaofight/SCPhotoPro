@@ -14,11 +14,13 @@ import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
 import android.view.Surface;
@@ -26,12 +28,35 @@ import android.view.TextureView;
 import android.view.View;
 
 import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import static android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP;
 import static android.hardware.camera2.CameraDevice.TEMPLATE_PREVIEW;
 
 public class SCPhotoActivity extends AppCompatActivity implements View.OnClickListener {
+
+    private static final int SENSOR_ORIENTATION_DEFAULT_DEGREES = 90;
+    private static final int SENSOR_ORIENTATION_INVERSE_DEGREES = 270;
+
+    private static final SparseIntArray DEFAULT_ORIENTATIONS = new SparseIntArray();
+    private static final SparseIntArray INVERSE_ORIENTATIONS = new SparseIntArray();
+
+    static {
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_0, 90);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_90, 0);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_180, 270);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_270, 180);
+    }
+
+    static {
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_0, 270);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_90, 180);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_180, 90);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_270, 0);
+    }
 
     private SCSurfaceView scSurfaceView;
     private View btnRetry;
@@ -45,7 +70,7 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
     private CameraCaptureSession mSession;
 
     private ImageReader mImageReader;
-    private Image lastestImage;
+    private Image latestImage;
 
     private CameraCharacteristics bCharacter;
 //    private CameraCharacteristics fCharacter;
@@ -82,6 +107,8 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
         }
     };
     private CaptureRequest.Builder mPreBuilder;
+    private MediaRecorder mMediaRecorder;
+    private String mNextVideoAbsolutePath;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -93,16 +120,19 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
             @Override
             public void click() {
                 googleCapture();
+                Log.d("mediaRecorder", "click: ");
             }
 
             @Override
             public void startLongPress() {
                 startVideo();
+                Log.d("mediaRecorder", "startLongPress: " + System.currentTimeMillis());
             }
 
             @Override
             public void cancelLongPress() {
                 stopVideo();
+                Log.d("mediaRecorder", "cancelLongPress: " + System.currentTimeMillis());
             }
         });
         findViewById(R.id.btn_back).setOnClickListener(this);
@@ -125,6 +155,12 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
     }
 
     private Surface mSurface;
+
+    private String getVideoPath() {
+        mNextVideoAbsolutePath = getExternalFilesDir(null) + File.separator
+                + System.currentTimeMillis() +  ".mp4";
+        return mNextVideoAbsolutePath;
+    }
 
     @Override
     protected void onResume() {
@@ -264,7 +300,7 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
         mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
             @Override
             public void onImageAvailable(ImageReader reader) {
-                lastestImage = reader.acquireLatestImage();
+                latestImage = reader.acquireLatestImage();
             }
         }, cameraHandler);
     }
@@ -284,14 +320,99 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
             mImageReader.close();
             mImageReader = null;
         }
+        if (mMediaRecorder != null) {
+            mMediaRecorder.release();
+            mMediaRecorder = null;
+        }
+    }
+
+    private void prepareVideo() {
+        mMediaRecorder = new MediaRecorder();
+        mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+        mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+        mMediaRecorder.setOutputFile(getVideoPath());
+        mMediaRecorder.setVideoEncodingBitRate(10000000);
+        mMediaRecorder.setVideoFrameRate(30);
+        mMediaRecorder.setVideoSize(1080, 1920);
+        mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+        mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        switch (bCharacter.get(CameraCharacteristics.SENSOR_ORIENTATION)) {
+            case SENSOR_ORIENTATION_DEFAULT_DEGREES:
+                mMediaRecorder.setOrientationHint(DEFAULT_ORIENTATIONS.get(rotation));
+                break;
+            case SENSOR_ORIENTATION_INVERSE_DEGREES:
+                mMediaRecorder.setOrientationHint(INVERSE_ORIENTATIONS.get(rotation));
+                break;
+        }
+        try {
+            mMediaRecorder.prepare();
+        } catch (IOException e) {
+            e.printStackTrace();
+            Log.d("mediaRecorder : ", "prepare");
+        }
     }
 
     private void startVideo() {
+        if (mSession != null) {
+            mSession.close();
+        }
+        prepareVideo();
+        try {
+            final CaptureRequest.Builder builder = mCameraDevice
+                    .createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
 
+            List<Surface> surfaces = new ArrayList<>(2);
+
+            Surface sur = mMediaRecorder.getSurface();
+//            builder.addTarget(sur);
+
+            SurfaceTexture surfaceTexture = scSurfaceView.getSurfaceTexture();
+            surfaceTexture.setDefaultBufferSize(1080, 1920);
+            Surface surface = new Surface(surfaceTexture);
+            builder.addTarget(surface);
+
+            surfaces.add(sur);
+            surfaces.add(surface);
+
+            mCameraDevice.createCaptureSession(surfaces,
+                    new CameraCaptureSession.StateCallback() {
+                        @Override
+                        public void onConfigured(@NonNull CameraCaptureSession session) {
+                            mSession = session;
+                            try {
+                                mSession.setRepeatingRequest(builder.build(), null, cameraHandler);
+                                runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        mMediaRecorder.start();
+                                        Log.d("mediaRecorder : ", "start");
+                                    }
+                                });
+                            } catch (CameraAccessException e) {
+                                e.printStackTrace();
+                                Log.d("mediaRecorder : ", "CameraAccessException 0");
+                            }
+                        }
+                        @Override
+                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                            Log.d("mediaRecorder : ", "onConfigureFailed");
+                        }
+                    }, cameraHandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+            Log.d("mediaRecorder : ", "CameraAccessException 1");
+        }
     }
 
     private void stopVideo() {
-
+        try {
+            mMediaRecorder.stop();
+            mMediaRecorder.reset();
+        } catch (IllegalStateException e) {
+            e.printStackTrace();
+        }
     }
 
     private void googleCapture() {
@@ -359,8 +480,8 @@ public class SCPhotoActivity extends AppCompatActivity implements View.OnClickLi
 
     private void clickConfirm() {
         File f = getExternalFilesDir(null);
-        if (lastestImage != null && f != null) {
-            cameraHandler.post(new ImageSaver(lastestImage,
+        if (latestImage != null && f != null) {
+            cameraHandler.post(new ImageSaver(latestImage,
                     new File(f.getAbsolutePath() + File.separator + System.currentTimeMillis() + ".jpg")));
         }
     }
